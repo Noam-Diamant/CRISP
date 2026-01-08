@@ -153,6 +153,11 @@ class CRISP:
             layers=config.layers,
             device='auto'
         )
+        # #region agent log
+        import json
+        with open('/dsi/fetaya-lab/noam_diamant/projects/Unlearning_with_SAE/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({'sessionId':'debug-session','runId':'pre-fix','hypothesisId':'A','location':'crisp.py:156','message':'After ModelSaes init in CRISP.__init__','data':{'model_saes_saes_count':len(self.model_saes.saes),'model_saes_saes_keys':list(self.model_saes.saes.keys())},'timestamp':__import__('time').time()*1000}) + '\n')
+        # #endregion
         self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.model = AutoModelForCausalLM.from_pretrained(config.model_name, device_map='auto', torch_dtype=torch.bfloat16 if config.bf16 else torch.float32)
@@ -247,6 +252,11 @@ class CRISP:
             print(f"Need to process {len(uncached_layers)} uncached layers: {uncached_layers}")
 
         # Continue with batch processing for uncached layers
+        # #region agent log
+        import json
+        with open('/dsi/fetaya-lab/noam_diamant/projects/Unlearning_with_SAE/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({'sessionId':'debug-session','runId':'pre-fix','hypothesisId':'B,E','location':'crisp.py:250','message':'Before accessing model_saes.saes[0]','data':{'uncached_layers':uncached_layers,'model_saes_saes_count':len(self.model_saes.saes),'model_saes_saes_keys':list(self.model_saes.saes.keys()),'model_saes_saes_values_len':len(list(self.model_saes.saes.values()))},'timestamp':__import__('time').time()*1000}) + '\n')
+        # #endregion
         n_features = list(self.model_saes.saes.values())[0].d_sae
         agg_encoded_acts_targets = torch.zeros(len(uncached_layers), n_features).cpu()
         agg_encoded_acts_benigns = torch.zeros(len(uncached_layers), n_features).cpu()

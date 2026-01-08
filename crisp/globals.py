@@ -5,6 +5,7 @@ import random
 
 # Paths
 PROJECT_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_PATH = os.path.join(PROJECT_PATH, "crisp", "data")
 GEMMA_SAE_CACHE_PATH = os.path.join(PROJECT_PATH, "crisp", "gemma_sae_cache")
 LLAMA_3_1_SAE_CACHE_PATH = os.path.join(PROJECT_PATH, "crisp", "llama_sae_cache")
 SAE_LLAMA_3_1_8B = "fnlp/Llama3_1-8B-Base-LXR-8x"

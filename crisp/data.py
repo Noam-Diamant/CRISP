@@ -8,7 +8,7 @@ import numpy as np
 from tqdm.auto import tqdm
 from datasets import load_dataset
 
-from globals import SEED
+from globals import SEED, DATA_PATH
 from crisp import CRISP
 
 hp_prompts = [
@@ -348,11 +348,53 @@ def load_wmdp_data(target_type: str, retain_type: str, n_examples: int|None = No
 
     # Load target data
     if target_type == "bio":
-        data_path = f"{DATA_PATH}/wmdp/bio/bio_forget_dataset_cleaned.jsonl"
-        forget_data = load_dataset("json", data_files=data_path)['train']['text']
+        try:
+            # Try to load pre-cleaned local file
+            data_path = f"{DATA_PATH}/wmdp/bio/bio_forget_dataset_cleaned.jsonl"
+            forget_data = load_dataset("json", data_files=data_path)['train']['text']
+        except:
+            # Fallback: load from HuggingFace and preprocess on-the-fly
+            print("Local cleaned file not found. Loading from HuggingFace and preprocessing...")
+            try:
+                raw_data = load_dataset("cais/wmdp-bio-forget-corpus", split="train")
+                # Extract text field (handle different possible column names)
+                if 'text' in raw_data.column_names:
+                    texts = raw_data['text']
+                elif 'content' in raw_data.column_names:
+                    texts = raw_data['content']
+                else:
+                    texts = raw_data[raw_data.column_names[0]]
+                forget_data = prepare_text(texts, max_len=max_len)
+                print(f"Successfully loaded and processed {len(forget_data)} examples from HuggingFace")
+            except Exception as e:
+                raise ValueError(f"Could not load WMDP-bio data. Error: {e}\n"
+                                f"Please either:\n"
+                                f"  1. Run preprocess_wmdp_bio.py to create local files, or\n"
+                                f"  2. Request access to cais/wmdp-bio-forget-corpus on HuggingFace")
     elif target_type == "cyber":
-        data_path = f"{DATA_PATH}/wmdp/cyber/cyber_forget_dataset_cleaned.jsonl"
-        forget_data = load_dataset("json", data_files=data_path)['train']['text']
+        try:
+            # Try to load pre-cleaned local file
+            data_path = f"{DATA_PATH}/wmdp/cyber/cyber_forget_dataset_cleaned.jsonl"
+            forget_data = load_dataset("json", data_files=data_path)['train']['text']
+        except:
+            # Fallback: load from HuggingFace and preprocess on-the-fly
+            print("Local cleaned file not found. Loading from HuggingFace and preprocessing...")
+            try:
+                raw_data = load_dataset("cais/wmdp-cyber-forget-corpus", split="train")
+                # Extract text field (handle different possible column names)
+                if 'text' in raw_data.column_names:
+                    texts = raw_data['text']
+                elif 'content' in raw_data.column_names:
+                    texts = raw_data['content']
+                else:
+                    texts = raw_data[raw_data.column_names[0]]
+                forget_data = prepare_text(texts, max_len=max_len)
+                print(f"Successfully loaded and processed {len(forget_data)} examples from HuggingFace")
+            except Exception as e:
+                raise ValueError(f"Could not load WMDP-cyber data. Error: {e}\n"
+                                f"Please either:\n"
+                                f"  1. Run preprocessing script to create local files, or\n"
+                                f"  2. Request access to cais/wmdp-cyber-forget-corpus on HuggingFace")
     else:
         raise ValueError("Only bio and cyber datasets are supported for target_type")
     # Always shuffle the data with the given seed

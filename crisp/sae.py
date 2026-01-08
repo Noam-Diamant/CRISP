@@ -809,8 +809,21 @@ class ModelSaes:
             self.cache_dir = Path(cache_dir)
             try:
                 print(f"Loading from cache: {self.cache_dir}")
+                # #region agent log
+                import json
+                with open('/dsi/fetaya-lab/noam_diamant/projects/Unlearning_with_SAE/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({'sessionId':'debug-session','runId':'pre-fix','hypothesisId':'A,C','location':'sae.py:812','message':'Before _load_distributed_from_disk','data':{'layer_names':layer_names,'cache_dir':str(cache_dir)},'timestamp':__import__('time').time()*1000}) + '\n')
+                # #endregion
                 cached = self._load_distributed_from_disk(self.model_name, layers=layer_names)
+                # #region agent log
+                with open('/dsi/fetaya-lab/noam_diamant/projects/Unlearning_with_SAE/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({'sessionId':'debug-session','runId':'pre-fix','hypothesisId':'A,D','location':'sae.py:814','message':'After _load_distributed_from_disk','data':{'cached_layer_names':cached.layer_names,'cached_saes_count':len(cached.saes),'cached_saes_keys':list(cached.saes.keys())},'timestamp':__import__('time').time()*1000}) + '\n')
+                # #endregion
                 if layers is None or all(layer in cached.layer_names for layer in layer_names):
+                    # #region agent log
+                    with open('/dsi/fetaya-lab/noam_diamant/projects/Unlearning_with_SAE/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({'sessionId':'debug-session','runId':'pre-fix','hypothesisId':'A,D','location':'sae.py:816','message':'Condition passed, assigning saes','data':{'layers_is_none':layers is None,'all_layers_in_cached':all(layer in cached.layer_names for layer in layer_names) if layers else None},'timestamp':__import__('time').time()*1000}) + '\n')
+                    # #endregion
                     self.saes = cached.saes
                     self.layer_device_map = cached.layer_device_map
                     self._layer_names = cached.layer_names
@@ -818,11 +831,28 @@ class ModelSaes:
                         self.saes = {k: self.saes[k] for k in layer_names}
                         self.layer_device_map = {k: self.layer_device_map[k] for k in layer_names}
                         self._layer_names = natsorted(self.saes.keys())
+                    # #region agent log
+                    with open('/dsi/fetaya-lab/noam_diamant/projects/Unlearning_with_SAE/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({'sessionId':'debug-session','runId':'pre-fix','hypothesisId':'A,E','location':'sae.py:827','message':'After assignment, before return','data':{'self_saes_count':len(self.saes),'self_saes_keys':list(self.saes.keys())},'timestamp':__import__('time').time()*1000}) + '\n')
+                    # #endregion
                     return
+                else:
+                    # #region agent log
+                    with open('/dsi/fetaya-lab/noam_diamant/projects/Unlearning_with_SAE/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({'sessionId':'debug-session','runId':'pre-fix','hypothesisId':'E','location':'sae.py:829','message':'Condition failed - some layers not in cache','data':{'requested_layers':layer_names,'cached_layers':cached.layer_names,'missing_layers':[l for l in layer_names if l not in cached.layer_names]},'timestamp':__import__('time').time()*1000}) + '\n')
+                    # #endregion
             except Exception as e:
                 print(f"Cache load failed: {e}")
+                # #region agent log
+                with open('/dsi/fetaya-lab/noam_diamant/projects/Unlearning_with_SAE/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({'sessionId':'debug-session','runId':'pre-fix','hypothesisId':'D','location':'sae.py:833','message':'Exception caught during cache load','data':{'error':str(e),'error_type':type(e).__name__},'timestamp':__import__('time').time()*1000}) + '\n')
+                # #endregion
             else:
                 print("Cache load failed, loading from repo")
+                # #region agent log
+                with open('/dsi/fetaya-lab/noam_diamant/projects/Unlearning_with_SAE/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({'sessionId':'debug-session','runId':'pre-fix','hypothesisId':'D,E','location':'sae.py:836','message':'Else block - no exception but condition failed','data':{'self_saes_count':len(self.saes),'self_saes_keys':list(self.saes.keys())},'timestamp':__import__('time').time()*1000}) + '\n')
+                # #endregion
         else:
             raise FileNotFoundError(f"Cache directory {cache_dir} does not exist.")
 
