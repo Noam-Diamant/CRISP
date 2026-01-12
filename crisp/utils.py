@@ -57,15 +57,9 @@ def get_cache_filename(layer: int, data_config):
         params.append(f"forget_{data_config.forget_type}")
         params.append(f"retain_{data_config.retain_type}")
 
-    # # Add common processing parameters
-    # if hasattr(data_config, 'n_examples'):
-    #     params.append(f"n_examples_{data_config.n_examples}")
-
-    # always load the full features analysis
-    if config_type == "hpdata":
-        params.append(f"n_examples_2500")
-    else:
-        params.append(f"n_examples_None")
+    # Add common processing parameters
+    if hasattr(data_config, 'n_examples'):
+        params.append(f"n_examples_{data_config.n_examples}")
 
     if hasattr(data_config, 'max_length'):
         params.append(f"max_len_{data_config.max_length}")
