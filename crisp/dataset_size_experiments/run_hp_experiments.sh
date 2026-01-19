@@ -7,7 +7,7 @@ TARGET="hp"
 RETAIN="book"
 GPU="3"
 OUTPUT_DIR="experiment_results_hp"
-VARY_MODE="both" #feature_extraction #unlearning
+VARY_MODE="feature_extraction" #feature_extraction #unlearning
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do

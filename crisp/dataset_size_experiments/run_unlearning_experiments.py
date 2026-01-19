@@ -369,7 +369,7 @@ def run_single_experiment(
     )
     
     # Save individual experiment results
-    vary_suffix = f"_vary_{vary_mode}" if vary_mode != "both" else ""
+    vary_suffix = f"_vary_{vary_mode}" if vary_mode != "both" else "_vary_both"
     exp_filename = f"experiment_n{n_examples}_{target}_{retain}_{model_config['model_name_short']}{vary_suffix}.json"
     exp_path = os.path.join(output_dir, exp_filename)
     with open(exp_path, 'w') as f:
@@ -387,7 +387,7 @@ def run_single_experiment(
 def save_summary_results(all_results: List[Dict[str, Any]], output_dir: str, args):
     """Save summary of all experiments."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    vary_suffix = f"_vary_{args.vary_dataset}" if args.vary_dataset != "both" else ""
+    vary_suffix = f"_vary_{args.vary_dataset}" if args.vary_dataset != "both" else "_vary_both"
     summary_filename = f"summary_{args.target}_{args.retain}_{args.model.replace('.', '_')}{vary_suffix}_{timestamp}.json"
     summary_path = os.path.join(output_dir, summary_filename)
     
@@ -499,7 +499,7 @@ def main():
     
     for n_examples in args.dataset_sizes:
         # Check if results already exist
-        vary_suffix = f"_vary_{args.vary_dataset}" if args.vary_dataset != "both" else ""
+        vary_suffix = f"_vary_{args.vary_dataset}" if args.vary_dataset != "both" else "_vary_both"
         exp_filename = f"experiment_n{n_examples}_{args.target}_{args.retain}_{model_config['model_name_short']}{vary_suffix}.json"
         exp_path = os.path.join(args.output_dir, exp_filename)
         
