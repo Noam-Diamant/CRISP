@@ -73,7 +73,7 @@ def load_results(results_dir: str, summary_file: str = None) -> Dict[str, Any]:
             return json.load(f)
 
 
-def create_accuracy_plot(results: List[Dict[str, Any]], target: str, output_dir: str):
+def create_accuracy_plot(results: List[Dict[str, Any]], target: str, model: str, vary_mode: str, output_dir: str):
     """Create plot showing accuracy vs dataset size."""
     n_examples = [r['n_examples'] for r in results]
     
@@ -99,7 +99,8 @@ def create_accuracy_plot(results: List[Dict[str, Any]], target: str, output_dir:
     ax1.plot(n_examples, target_after, 's-', label='After Unlearning', linewidth=2, markersize=8)
     ax1.set_xlabel('Number of Examples', fontsize=12)
     ax1.set_ylabel('Accuracy', fontsize=12)
-    ax1.set_title(f'{target_label} vs Dataset Size', fontsize=14, fontweight='bold')
+    title_suffix = f" (vary: {vary_mode})" if vary_mode != "both" else ""
+    ax1.set_title(f'{target_label} vs Dataset Size{title_suffix}', fontsize=14, fontweight='bold')
     ax1.legend(fontsize=10)
     ax1.grid(True, alpha=0.3)
     ax1.set_xscale('log')
@@ -109,19 +110,20 @@ def create_accuracy_plot(results: List[Dict[str, Any]], target: str, output_dir:
     ax2.plot(n_examples, retain_after, 's-', label='After Unlearning', linewidth=2, markersize=8)
     ax2.set_xlabel('Number of Examples', fontsize=12)
     ax2.set_ylabel('Accuracy', fontsize=12)
-    ax2.set_title('MMLU Accuracy vs Dataset Size', fontsize=14, fontweight='bold')
+    ax2.set_title(f'MMLU Accuracy vs Dataset Size{title_suffix}', fontsize=14, fontweight='bold')
     ax2.legend(fontsize=10)
     ax2.grid(True, alpha=0.3)
     ax2.set_xscale('log')
     
     plt.tight_layout()
-    output_path = os.path.join(output_dir, f'accuracy_vs_dataset_size_{target}.png')
+    vary_suffix = f"_vary_{vary_mode}" if vary_mode != "both" else ""
+    output_path = os.path.join(output_dir, f'accuracy_vs_dataset_size_{target}_{model}{vary_suffix}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Saved plot: {output_path}")
     plt.close()
 
 
-def create_drop_plot(results: List[Dict[str, Any]], target: str, output_dir: str):
+def create_drop_plot(results: List[Dict[str, Any]], target: str, model: str, vary_mode: str, output_dir: str):
     """Create plot showing accuracy drop vs dataset size."""
     n_examples = [r['n_examples'] for r in results]
     target_drop_pct = [r['target_accuracy_drop_percent'] for r in results]
@@ -135,19 +137,21 @@ def create_drop_plot(results: List[Dict[str, Any]], target: str, output_dir: str
             linewidth=2, markersize=8, color='blue')
     ax.set_xlabel('Number of Examples', fontsize=12)
     ax.set_ylabel('Accuracy Drop (%)', fontsize=12)
-    ax.set_title('Accuracy Drop vs Dataset Size', fontsize=14, fontweight='bold')
+    title_suffix = f" (vary: {vary_mode})" if vary_mode != "both" else ""
+    ax.set_title(f'Accuracy Drop vs Dataset Size{title_suffix}', fontsize=14, fontweight='bold')
     ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
     ax.set_xscale('log')
     
     plt.tight_layout()
-    output_path = os.path.join(output_dir, f'accuracy_drop_vs_dataset_size_{target}.png')
+    vary_suffix = f"_vary_{vary_mode}" if vary_mode != "both" else ""
+    output_path = os.path.join(output_dir, f'accuracy_drop_vs_dataset_size_{target}_{model}{vary_suffix}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Saved plot: {output_path}")
     plt.close()
 
 
-def create_tradeoff_plot(results: List[Dict[str, Any]], target: str, output_dir: str):
+def create_tradeoff_plot(results: List[Dict[str, Any]], target: str, model: str, vary_mode: str, output_dir: str):
     """Create plot showing tradeoff between target and retain accuracy."""
     target_drop_pct = [r['target_accuracy_drop_percent'] for r in results]
     retain_drop_pct = [r['retain_accuracy_drop_percent'] for r in results]
@@ -165,20 +169,22 @@ def create_tradeoff_plot(results: List[Dict[str, Any]], target: str, output_dir:
     
     ax.set_xlabel('Retain Domain Accuracy Drop (%)', fontsize=12)
     ax.set_ylabel('Target Domain Accuracy Drop (%)', fontsize=12)
-    ax.set_title('Unlearning Tradeoff: Target vs Retain', fontsize=14, fontweight='bold')
+    title_suffix = f" (vary: {vary_mode})" if vary_mode != "both" else ""
+    ax.set_title(f'Unlearning Tradeoff: Target vs Retain{title_suffix}', fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.3)
     
     cbar = plt.colorbar(scatter, ax=ax)
     cbar.set_label('log10(N Examples)', fontsize=10)
     
     plt.tight_layout()
-    output_path = os.path.join(output_dir, f'tradeoff_plot_{target}.png')
+    vary_suffix = f"_vary_{vary_mode}" if vary_mode != "both" else ""
+    output_path = os.path.join(output_dir, f'tradeoff_plot_{target}_{model}{vary_suffix}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Saved plot: {output_path}")
     plt.close()
 
 
-def create_statistics_table(results: List[Dict[str, Any]], target: str, output_dir: str):
+def create_statistics_table(results: List[Dict[str, Any]], target: str, model: str, vary_mode: str, output_dir: str):
     """Create and save statistics table."""
     # Determine target key
     if target == "hp":
@@ -191,8 +197,16 @@ def create_statistics_table(results: List[Dict[str, Any]], target: str, output_d
     # Create DataFrame
     data = []
     for r in results:
-        data.append({
+        row = {
             'N Examples': r['n_examples'],
+        }
+        
+        # Add feature extraction and unlearning sizes if they differ
+        if vary_mode != "both":
+            row['Feature N'] = r.get('feature_extraction_n_examples', r['n_examples'])
+            row['Unlearn N'] = r.get('unlearning_n_examples', r['n_examples'])
+        
+        row.update({
             'Target Acc (Before)': f"{r['metrics_before'][target_key]:.4f}",
             'Target Acc (After)': f"{r['metrics_after'][target_key]:.4f}",
             'Target Drop (%)': f"{r['target_accuracy_drop_percent']:.2f}",
@@ -200,16 +214,19 @@ def create_statistics_table(results: List[Dict[str, Any]], target: str, output_d
             'MMLU Acc (After)': f"{r['metrics_after'][retain_key]:.4f}",
             'MMLU Drop (%)': f"{r['retain_accuracy_drop_percent']:.2f}",
         })
+        
+        data.append(row)
     
     df = pd.DataFrame(data)
     
     # Save as CSV
-    csv_path = os.path.join(output_dir, f'statistics_table_{target}.csv')
+    vary_suffix = f"_vary_{vary_mode}" if vary_mode != "both" else ""
+    csv_path = os.path.join(output_dir, f'statistics_table_{target}_{model}{vary_suffix}.csv')
     df.to_csv(csv_path, index=False)
     print(f"Saved statistics table: {csv_path}")
     
     # Save as markdown
-    md_path = os.path.join(output_dir, f'statistics_table_{target}.md')
+    md_path = os.path.join(output_dir, f'statistics_table_{target}_{model}{vary_suffix}.md')
     with open(md_path, 'w') as f:
         f.write(df.to_markdown(index=False))
     print(f"Saved markdown table: {md_path}")
@@ -217,7 +234,7 @@ def create_statistics_table(results: List[Dict[str, Any]], target: str, output_d
     return df
 
 
-def print_summary_statistics(results: List[Dict[str, Any]], target: str):
+def print_summary_statistics(results: List[Dict[str, Any]], target: str, vary_mode: str):
     """Print summary statistics to console."""
     n_experiments = len(results)
     
@@ -229,6 +246,18 @@ def print_summary_statistics(results: List[Dict[str, Any]], target: str):
     print("="*80)
     print(f"Number of experiments: {n_experiments}")
     print(f"Dataset sizes: {[r['n_examples'] for r in results]}")
+    print(f"Vary mode: {vary_mode}")
+    
+    # Show what varies
+    if vary_mode == "both":
+        print("  Both feature extraction and unlearning vary with dataset size")
+    elif vary_mode == "feature_extraction":
+        max_n = max([r.get('unlearning_n_examples', r['n_examples']) for r in results])
+        print(f"  Feature extraction varies, unlearning fixed at {max_n} examples")
+    elif vary_mode == "unlearning":
+        max_n = max([r.get('feature_extraction_n_examples', r['n_examples']) for r in results])
+        print(f"  Feature extraction fixed at {max_n} examples, unlearning varies")
+    
     print()
     print("Target Domain Accuracy Drop:")
     print(f"  Mean: {np.mean(target_drops):.2f}%")
@@ -257,23 +286,26 @@ def main():
     
     results = data['results']
     target = data['experiment_info']['target']
+    model = data['experiment_info']['model']
+    vary_mode = data['experiment_info'].get('vary_mode', 'both')  # Default to 'both' for older results
     
     print(f"Loaded {len(results)} experiments")
     print(f"Target: {target}")
-    print(f"Model: {data['experiment_info']['model']}")
+    print(f"Model: {model}")
+    print(f"Vary mode: {vary_mode}")
     
     # Create plots
     print("\nGenerating plots...")
-    create_accuracy_plot(results, target, args.output_dir)
-    create_drop_plot(results, target, args.output_dir)
-    create_tradeoff_plot(results, target, args.output_dir)
+    create_accuracy_plot(results, target, model, vary_mode, args.output_dir)
+    create_drop_plot(results, target, model, vary_mode, args.output_dir)
+    create_tradeoff_plot(results, target, model, vary_mode, args.output_dir)
     
     # Create statistics table
     print("\nGenerating statistics...")
-    df = create_statistics_table(results, target, args.output_dir)
+    df = create_statistics_table(results, target, model, vary_mode, args.output_dir)
     
     # Print summary
-    print_summary_statistics(results, target)
+    print_summary_statistics(results, target, vary_mode)
     
     print(f"\nAll outputs saved to: {args.output_dir}")
 

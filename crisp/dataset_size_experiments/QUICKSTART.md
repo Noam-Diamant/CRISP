@@ -75,7 +75,22 @@ python run_unlearning_experiments.py \
 python run_unlearning_experiments.py --skip-existing
 ```
 
-### 6. Analyze Results
+### 6. Control What Varies with Dataset Size
+
+```bash
+# Default: Both feature extraction and unlearning vary (default)
+python run_unlearning_experiments.py --vary-dataset both
+
+# Vary only feature extraction, unlearning uses max dataset size
+python run_unlearning_experiments.py --vary-dataset feature_extraction
+
+# Vary only unlearning, feature extraction uses max dataset size
+python run_unlearning_experiments.py --vary-dataset unlearning
+```
+
+See EXPERIMENT_README.md for detailed explanation of each mode.
+
+### 7. Analyze Results
 
 ```bash
 python analyze_results.py --results-dir experiment_results_hp --output-dir analysis_hp

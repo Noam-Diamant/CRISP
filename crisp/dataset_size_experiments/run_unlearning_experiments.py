@@ -11,6 +11,17 @@ import argparse
 import json
 import os
 import sys
+
+# IMPORTANT: Set CUDA_VISIBLE_DEVICES BEFORE importing torch
+# Parse --gpu argument early to set CUDA_VISIBLE_DEVICES before torch import
+# This must happen before torch import because PyTorch checks CUDA availability during import
+gpu_arg = "3"  # default (matches argparse default)
+if "--gpu" in sys.argv:
+    gpu_idx = sys.argv.index("--gpu")
+    if gpu_idx + 1 < len(sys.argv):
+        gpu_arg = sys.argv[gpu_idx + 1]
+os.environ["CUDA_VISIBLE_DEVICES"] = gpu_arg
+
 import torch
 from datetime import datetime
 from typing import Dict, List, Any
@@ -80,7 +91,7 @@ def parse_args():
     parser.add_argument(
         "--gpu",
         type=str,
-        default="0",
+        default="3",
         help="GPU device ID (default: 0)"
     )
     
@@ -95,6 +106,14 @@ def parse_args():
         "--skip-existing",
         action="store_true",
         help="Skip experiments for which results already exist"
+    )
+    
+    parser.add_argument(
+        "--vary-dataset",
+        type=str,
+        default="both",
+        choices=["both", "feature_extraction", "unlearning"],
+        help="What to vary with dataset size: 'both' (default), 'feature_extraction' only, or 'unlearning' only"
     )
     
     return parser.parse_args()
@@ -214,27 +233,48 @@ def run_single_experiment(
     retain: str,
     max_length: int,
     model_config: Dict[str, Any],
-    output_dir: str
+    output_dir: str,
+    metrics_before: Dict[str, float],
+    vary_mode: str = "both",
+    max_n_examples: int = None
 ) -> Dict[str, Any]:
-    """Run a single unlearning experiment for a given number of examples."""
+    """Run a single unlearning experiment for a given number of examples.
+    
+    Args:
+        n_examples: Number of examples to use (interpretation depends on vary_mode)
+        vary_mode: What to vary - 'both', 'feature_extraction', or 'unlearning'
+        max_n_examples: Maximum dataset size (used when vary_mode is not 'both')
+    """
     
     print("\n" + "="*80)
-    print(f"Running experiment with {n_examples} examples")
+    print(f"Running experiment with {n_examples} examples (vary_mode: {vary_mode})")
     print("="*80)
     
     # Initialize model
     crisp = initialize_model(model_config)
     
-    # Load data
-    forget_data, retain_data = load_data(target, retain, n_examples, max_length)
+    # Determine dataset sizes based on vary_mode
+    if vary_mode == "both":
+        # Both feature extraction and unlearning use n_examples
+        feature_n_examples = n_examples
+        unlearn_n_examples = n_examples
+    elif vary_mode == "feature_extraction":
+        # Feature extraction uses n_examples, unlearning uses max
+        feature_n_examples = n_examples
+        unlearn_n_examples = max_n_examples
+    elif vary_mode == "unlearning":
+        # Feature extraction uses max, unlearning uses n_examples
+        feature_n_examples = max_n_examples
+        unlearn_n_examples = n_examples
+    else:
+        raise ValueError(f"Unknown vary_mode: {vary_mode}")
     
-    # Create data config with n_examples
-    data_config = create_data_config(target, retain, n_examples, max_length)
+    # Load data for feature extraction
+    print(f"Loading data for feature extraction ({feature_n_examples} examples)...")
+    forget_data_features, retain_data_features = load_data(target, retain, feature_n_examples, max_length)
     
-    # Evaluate before unlearning
-    print("\n--- Evaluating Original Model ---")
-    with crisp.model.disable_adapter() if hasattr(crisp.model, 'disable_adapter') else torch.no_grad():
-        metrics_before = evaluate_model(crisp, target, eval_type="before")
+    # Create data config for feature extraction
+    data_config_features = create_data_config(target, retain, feature_n_examples, max_length)
     
     # Create unlearn config
     unlearn_config = UnlearnConfig(
@@ -249,16 +289,42 @@ def run_single_experiment(
         lora_rank=4,
         verbose=target
     )
-
+    
+    # Handle feature extraction
+    if vary_mode == "both":
+        # Features will be extracted inside unlearn_lora with n_examples data
+        forget_data_unlearn = forget_data_features
+        retain_data_unlearn = retain_data_features
+        data_config_unlearn = data_config_features
+    else:
+        # Pre-compute features with feature_n_examples data
+        print(f"\n--- Extracting features ({feature_n_examples} examples) ---")
+        crisp.process_multi_texts_batch(
+            text_target=forget_data_features,
+            text_benign=retain_data_features,
+            data_config=data_config_features,
+            batch_size=unlearn_config.batch_size
+        )
+        
+        # Load data for unlearning (different size if vary_mode != 'both')
+        if unlearn_n_examples != feature_n_examples:
+            print(f"Loading data for unlearning ({unlearn_n_examples} examples)...")
+            forget_data_unlearn, retain_data_unlearn = load_data(target, retain, unlearn_n_examples, max_length)
+        else:
+            forget_data_unlearn = forget_data_features
+            retain_data_unlearn = retain_data_features
+        
+        # Data config for unlearning (for cache naming)
+        data_config_unlearn = create_data_config(target, retain, unlearn_n_examples, max_length)
     
     # Perform unlearning
-    print("\n--- Performing Unlearning ---")
+    print(f"\n--- Performing Unlearning ({unlearn_n_examples} examples) ---")
     unlearn_lora(
         crisp=crisp,
-        text_target=forget_data,
-        text_benign=retain_data,
+        text_target=forget_data_unlearn,
+        text_benign=retain_data_unlearn,
         config=unlearn_config,
-        data_config=data_config
+        data_config=data_config_unlearn
     )
     
     # Evaluate after unlearning
@@ -268,6 +334,9 @@ def run_single_experiment(
     # Compile results
     results = {
         "n_examples": n_examples,
+        "vary_mode": vary_mode,
+        "feature_extraction_n_examples": feature_n_examples,
+        "unlearning_n_examples": unlearn_n_examples,
         "target": target,
         "retain": retain,
         "model": model_config['model_card'],
@@ -276,7 +345,8 @@ def run_single_experiment(
         "metrics_before": metrics_before,
         "metrics_after": metrics_after,
         "unlearn_config": unlearn_config.to_dict(),
-        "data_config": data_config.to_dict()
+        "data_config_features": data_config_features.to_dict(),
+        "data_config_unlearn": data_config_unlearn.to_dict()
     }
     
     # Calculate improvement metrics
@@ -299,7 +369,8 @@ def run_single_experiment(
     )
     
     # Save individual experiment results
-    exp_filename = f"experiment_n{n_examples}_{target}_{retain}_{model_config['model_name_short']}.json"
+    vary_suffix = f"_vary_{vary_mode}" if vary_mode != "both" else ""
+    exp_filename = f"experiment_n{n_examples}_{target}_{retain}_{model_config['model_name_short']}{vary_suffix}.json"
     exp_path = os.path.join(output_dir, exp_filename)
     with open(exp_path, 'w') as f:
         json.dump(results, f, indent=2)
@@ -316,7 +387,8 @@ def run_single_experiment(
 def save_summary_results(all_results: List[Dict[str, Any]], output_dir: str, args):
     """Save summary of all experiments."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    summary_filename = f"summary_{args.target}_{args.retain}_{args.model.replace('.', '_')}_{timestamp}.json"
+    vary_suffix = f"_vary_{args.vary_dataset}" if args.vary_dataset != "both" else ""
+    summary_filename = f"summary_{args.target}_{args.retain}_{args.model.replace('.', '_')}{vary_suffix}_{timestamp}.json"
     summary_path = os.path.join(output_dir, summary_filename)
     
     summary = {
@@ -326,6 +398,7 @@ def save_summary_results(all_results: List[Dict[str, Any]], output_dir: str, arg
             "model": args.model,
             "max_length": args.max_length,
             "dataset_sizes": args.dataset_sizes,
+            "vary_mode": args.vary_dataset,
             "timestamp": timestamp
         },
         "results": all_results
@@ -368,8 +441,12 @@ def main():
     """Main execution function."""
     args = parse_args()
     
-    # Set GPU
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    # GPU is already set before torch import (see top of file)
+    # Verify it matches the argument
+    if os.environ.get("CUDA_VISIBLE_DEVICES") != args.gpu:
+        print(f"Warning: CUDA_VISIBLE_DEVICES was set to {os.environ.get('CUDA_VISIBLE_DEVICES')} but --gpu is {args.gpu}")
+        print("Setting CUDA_VISIBLE_DEVICES now (may not take effect if torch was already imported)")
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     
     # Set random seed
     set_seed(SEED)
@@ -392,9 +469,29 @@ def main():
     print(f"Target: {args.target}")
     print(f"Retain: {args.retain}")
     print(f"Dataset sizes: {args.dataset_sizes}")
+    print(f"Vary mode: {args.vary_dataset}")
     print(f"Output directory: {args.output_dir}")
     print(f"GPU: {args.gpu}")
     print(f"Max length: {args.max_length}")
+    print("="*80)
+    
+    # Get maximum dataset size for varying modes
+    max_n_examples = max(args.dataset_sizes) if args.dataset_sizes else 2500
+    
+    # Evaluate original model once (before any unlearning)
+    print("\n" + "="*80)
+    print("EVALUATING ORIGINAL MODEL (once for all experiments)")
+    print("="*80)
+    crisp_original = initialize_model(model_config)
+    metrics_before = evaluate_model(crisp_original, args.target, eval_type="before")
+    
+    # Clean up original model to free memory
+    del crisp_original
+    torch.cuda.empty_cache()
+    gc.collect()
+    
+    print("\n" + "="*80)
+    print("STARTING EXPERIMENTS WITH VARYING DATASET SIZES")
     print("="*80)
     
     # Run experiments for each dataset size
@@ -402,7 +499,8 @@ def main():
     
     for n_examples in args.dataset_sizes:
         # Check if results already exist
-        exp_filename = f"experiment_n{n_examples}_{args.target}_{args.retain}_{model_config['model_name_short']}.json"
+        vary_suffix = f"_vary_{args.vary_dataset}" if args.vary_dataset != "both" else ""
+        exp_filename = f"experiment_n{n_examples}_{args.target}_{args.retain}_{model_config['model_name_short']}{vary_suffix}.json"
         exp_path = os.path.join(args.output_dir, exp_filename)
         
         if args.skip_existing and os.path.exists(exp_path):
@@ -421,7 +519,10 @@ def main():
                 retain=args.retain,
                 max_length=args.max_length,
                 model_config=model_config,
-                output_dir=args.output_dir
+                output_dir=args.output_dir,
+                metrics_before=metrics_before,
+                vary_mode=args.vary_dataset,
+                max_n_examples=max_n_examples
             )
             all_results.append(results)
             

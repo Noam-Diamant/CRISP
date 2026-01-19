@@ -37,6 +37,7 @@ python run_unlearning_experiments.py --dataset-sizes 10 50 100 500 1000
 | `--target` | str | `hp` | `hp`, `bio` | Target domain to unlearn |
 | `--retain` | str | `book` | `book`, `wiki` | Retain set (book for HP, wiki for bio) |
 | `--dataset-sizes` | int+ | `[10, 25, 50, 100, 250, 500, 1000, 1500, 2500]` | Any positive integers | List of dataset sizes to experiment with |
+| `--vary-dataset` | str | `both` | `both`, `feature_extraction`, `unlearning` | What to vary with dataset size |
 | `--output-dir` | str | `experiment_results` | Any path | Directory to save experiment results |
 | `--gpu` | str | `0` | Any GPU ID | GPU device ID to use |
 | `--max-length` | int | `1000` | Any positive integer | Maximum length for text processing |
@@ -88,6 +89,46 @@ python run_unlearning_experiments.py \
     --output-dir experiment_results
 ```
 
+### Varying Dataset Size Modes
+
+The `--vary-dataset` argument controls what varies with the dataset sizes:
+
+#### Mode 1: `both` (default)
+Both feature extraction and unlearning use the varying dataset sizes.
+- For n_examples=10: Extract features from 10 examples, unlearn on 10 examples
+- For n_examples=100: Extract features from 100 examples, unlearn on 100 examples
+- This is the default behavior and tests how dataset size affects both components
+
+```bash
+python run_unlearning_experiments.py \
+    --vary-dataset both \
+    --dataset-sizes 10 50 100 500 1000
+```
+
+#### Mode 2: `feature_extraction`
+Only feature extraction varies, unlearning uses the maximum dataset size.
+- For n_examples=10: Extract features from 10 examples, unlearn on 2500 examples (max)
+- For n_examples=100: Extract features from 100 examples, unlearn on 2500 examples (max)
+- This tests how feature extraction dataset size affects unlearning quality
+
+```bash
+python run_unlearning_experiments.py \
+    --vary-dataset feature_extraction \
+    --dataset-sizes 10 50 100 500 1000
+```
+
+#### Mode 3: `unlearning`
+Feature extraction uses the maximum dataset size, only unlearning varies.
+- For n_examples=10: Extract features from 2500 examples (max), unlearn on 10 examples
+- For n_examples=100: Extract features from 2500 examples (max), unlearn on 100 examples
+- This tests how unlearning dataset size affects results when features are fixed
+
+```bash
+python run_unlearning_experiments.py \
+    --vary-dataset unlearning \
+    --dataset-sizes 10 50 100 500 1000
+```
+
 ## Output Files
 
 The script generates the following output files in the specified output directory:
@@ -96,10 +137,13 @@ The script generates the following output files in the specified output director
 
 For each dataset size, a file is created:
 ```
-experiment_n{N}_{target}_{retain}_{model}.json
+experiment_n{N}_{target}_{retain}_{model}[_vary_{mode}].json
 ```
 
-Example: `experiment_n250_hp_book_gemma.json`
+Examples:
+- `experiment_n250_hp_book_gemma.json` (default vary mode: both)
+- `experiment_n250_hp_book_gemma_vary_feature_extraction.json`
+- `experiment_n250_hp_book_gemma_vary_unlearning.json`
 
 This file contains:
 - Configuration details (n_examples, target, retain, model, etc.)
@@ -112,10 +156,13 @@ This file contains:
 
 A summary file aggregating all experiments:
 ```
-summary_{target}_{retain}_{model}_{timestamp}.json
+summary_{target}_{retain}_{model}[_vary_{mode}]_{timestamp}.json
 ```
 
-Example: `summary_hp_book_gemma-2-2b_20260112_143052.json`
+Examples:
+- `summary_hp_book_gemma-2-2b_20260112_143052.json` (default vary mode: both)
+- `summary_hp_book_gemma-2-2b_vary_feature_extraction_20260112_143052.json`
+- `summary_hp_book_gemma-2-2b_vary_unlearning_20260112_143052.json`
 
 This file contains:
 - Experiment metadata
