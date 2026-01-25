@@ -5,9 +5,9 @@
 MODEL="gemma-2-2b" #"llama-3.1-8b" #gemma-2-2b
 TARGET="hp"
 RETAIN="book"
-GPU="3"
+GPU="0"
 OUTPUT_DIR="experiment_results_hp"
-VARY_MODE="feature_extraction" #feature_extraction #unlearning
+VARY_MODE="unlearning" #feature_extraction #unlearning # both
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
