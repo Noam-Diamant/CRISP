@@ -117,7 +117,7 @@ def get_features_acts(model: CRISP, outputs, k, mode: str, alpha: float, topk_fi
         if mode == 'acts':
             encoded = model.model_saes.encode(hidden_states, layers=layer_idx)
 
-        elif mode == "acts_alpha":
+        elif mode == "acts_alpha" or mode == "alpha_abs" or mode == "alpha":
             mask = None
             if original_outputs:
                 original_hidden_states = original_outputs.hidden_states[layer_idx].to(layer_device)
@@ -126,7 +126,12 @@ def get_features_acts(model: CRISP, outputs, k, mode: str, alpha: float, topk_fi
 
             def add_alpha_to_salient(pre_acts, features, alpha, mask=None):
                 if features.numel() > 0:
-                    new_act_value = pre_acts[:, :, features] + torch.abs(alpha * pre_acts.mean(dim=-1, keepdim=True))
+                    if mode == "acts_alpha":
+                        new_act_value = pre_acts[:, :, features] + torch.abs(alpha * pre_acts.mean(dim=-1, keepdim=True))
+                    elif mode == "alpha_abs":
+                        new_act_value = torch.abs(alpha * pre_acts.mean(dim=-1, keepdim=True))
+                    elif mode == "alpha":
+                        new_act_value = alpha * pre_acts.mean(dim=-1, keepdim=True)
                     if mask is not None:
                         pre_acts[:, :, features] = torch.where(mask, new_act_value, pre_acts[:, :, features])
                     else:
@@ -165,7 +170,7 @@ def loss_features_acts(crisp: CRISP, outputs, config: UnlearnConfig, original_ou
     initial_device = crisp.model_saes.get_layer_device(layer_name)
 
     loss = torch.tensor(0.0, device=initial_device)
-    features_acts = get_features_acts(crisp, outputs, k=config.k_features, mode="acts_alpha", alpha=config.alpha, topk_filter=True, original_outputs=original_outputs)
+    features_acts = get_features_acts(crisp, outputs, k=config.k_features, mode="alpha", alpha=config.alpha, topk_filter=True, original_outputs=original_outputs)
     attention_mask = outputs.attention_mask  # shape [b, seq_len]
 
     for layer, acts in features_acts.items():
