@@ -51,12 +51,17 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_results(results_dir: str, summary_file: str = None) -> Dict[str, Any]:
-    """Load experiment results from JSON files."""
+def load_results(results_dir: str, summary_file: str = None) -> List[Dict[str, Any]]:
+    """Load experiment results from JSON files.
+    
+    Returns:
+        List of dictionaries, each containing 'data' and 'filepath' keys.
+        If summary_file is provided, returns a single-item list.
+    """
     if summary_file:
         # Load specific summary file
         with open(summary_file, 'r') as f:
-            return json.load(f)
+            return [{'data': json.load(f), 'filepath': summary_file}]
     else:
         # Find all summary files in the directory
         summary_files = glob.glob(os.path.join(results_dir, "summary_*.json"))
@@ -64,12 +69,20 @@ def load_results(results_dir: str, summary_file: str = None) -> Dict[str, Any]:
         if not summary_files:
             raise FileNotFoundError(f"No summary files found in {results_dir}")
         
-        # Use the most recent summary file
+        # Sort by modification time (most recent first) for consistent ordering
         summary_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-        print(f"Loading results from: {summary_files[0]}")
         
-        with open(summary_files[0], 'r') as f:
-            return json.load(f)
+        # Load all summary files
+        results_list = []
+        for filepath in summary_files:
+            with open(filepath, 'r') as f:
+                results_list.append({'data': json.load(f), 'filepath': filepath})
+        
+        print(f"Found {len(results_list)} summary file(s)")
+        for item in results_list:
+            print(f"  - {os.path.basename(item['filepath'])}")
+        
+        return results_list
 
 
 def create_accuracy_plot(results: List[Dict[str, Any]], target: str, model: str, output_dir: str, experiment_info: Dict[str, Any]):
@@ -252,6 +265,10 @@ def create_statistics_table(results: List[Dict[str, Any]], target: str, model: s
             'k_features': r['k_features'],
         }
         
+        # Add timestamp if available
+        if 'timestamp' in r:
+            row['Timestamp'] = r['timestamp']
+        
         # Add random features info if available
         if r.get('n_random_features', 0) > 0:
             row['Random Features'] = f"{r.get('n_random_features', 0):.1f}"
@@ -299,11 +316,21 @@ def print_summary_statistics(results: List[Dict[str, Any]], target: str, experim
     retain_drops = [r['retain_accuracy_drop_percent'] for r in results]
     k_features_list = [r['k_features'] for r in results]
     
+    # Extract timestamps if available
+    timestamps = [r.get('timestamp', 'N/A') for r in results]
+    
     print("\n" + "="*80)
     print("SUMMARY STATISTICS - FEATURE VARIATION EXPERIMENTS")
     print("="*80)
     print(f"Number of experiments: {n_experiments}")
     print(f"k_features tested: {k_features_list}")
+    
+    # Display timestamp range
+    valid_timestamps = [ts for ts in timestamps if ts != 'N/A']
+    if valid_timestamps:
+        print(f"Experiment timespan: {valid_timestamps[0]} to {valid_timestamps[-1]}")
+    
+    print()
     
     # Sample size info
     if experiment_info.get('n_samples_extraction'):
@@ -339,22 +366,22 @@ def print_summary_statistics(results: List[Dict[str, Any]], target: str, experim
     print("="*80)
 
 
-def main():
-    """Main execution function."""
-    args = parse_args()
-    
-    # Create output directory
-    os.makedirs(args.output_dir, exist_ok=True)
-    
-    # Load results
-    print("Loading experiment results...")
-    data = load_results(args.results_dir, args.summary_file)
-    
+def process_single_summary(data: Dict[str, Any], output_dir: str, filepath: str):
+    """Process a single summary file and generate all outputs."""
     results = data['results']
     experiment_info = data['experiment_info']
     target = experiment_info['target']
     model = experiment_info['model']
     
+    # Sort results by k_features for consistent ordering
+    results = sorted(results, key=lambda x: x['k_features'])
+    
+    # Extract model name for filename (handle paths like "google/gemma-2-2b")
+    model_short = model.split('/')[-1].replace('.', '_')
+    
+    print(f"\n{'='*80}")
+    print(f"Processing: {os.path.basename(filepath)}")
+    print(f"{'='*80}")
     print(f"Loaded {len(results)} experiments")
     print(f"Target: {target}")
     print(f"Model: {model}")
@@ -367,19 +394,37 @@ def main():
     
     # Create plots
     print("\nGenerating plots...")
-    create_accuracy_plot(results, target, model, args.output_dir, experiment_info)
-    create_drop_plot(results, target, model, args.output_dir, experiment_info)
-    create_random_features_plot(results, target, model, args.output_dir, experiment_info)
-    create_tradeoff_plot(results, target, model, args.output_dir, experiment_info)
+    create_accuracy_plot(results, target, model_short, output_dir, experiment_info)
+    create_drop_plot(results, target, model_short, output_dir, experiment_info)
+    create_random_features_plot(results, target, model_short, output_dir, experiment_info)
+    create_tradeoff_plot(results, target, model_short, output_dir, experiment_info)
     
     # Create statistics table
     print("\nGenerating statistics...")
-    df = create_statistics_table(results, target, model, args.output_dir, experiment_info)
+    df = create_statistics_table(results, target, model_short, output_dir, experiment_info)
     
     # Print summary
     print_summary_statistics(results, target, experiment_info)
+
+
+def main():
+    """Main execution function."""
+    args = parse_args()
     
-    print(f"\nAll outputs saved to: {args.output_dir}")
+    # Create output directory
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Load results
+    print("Loading experiment results...")
+    results_list = load_results(args.results_dir, args.summary_file)
+    
+    # Process each summary file separately
+    for item in results_list:
+        process_single_summary(item['data'], args.output_dir, item['filepath'])
+    
+    print(f"\n{'='*80}")
+    print(f"All outputs saved to: {args.output_dir}")
+    print(f"{'='*80}")
 
 
 if __name__ == "__main__":

@@ -159,6 +159,10 @@ crisp/__pycache__
 gemma_sae_cache/
 llama_sae_cache/
 crisp/crisp_cache/
+crisp/dataset_size_experiments/logs/
+crisp/experiment_results_hp/
+crisp/experiment_results_features/
+
 
 CRISP/
 

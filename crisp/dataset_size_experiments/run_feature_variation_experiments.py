@@ -5,6 +5,10 @@ Script to run unlearning experiments with varying numbers of features (k_feature
 This script performs systematic unlearning experiments by varying the number of
 features selected for unlearning. It can optionally fix the number of samples used
 for feature extraction and unlearning, and supplement learned features with random ones.
+
+Special case: Setting k_features=0 with --supplement-with-random allows testing
+unlearning with purely random features (no salient features).
+Example: --feature-counts 0 --supplement-with-random 10
 """
 
 import argparse
@@ -12,6 +16,7 @@ import json
 import os
 import sys
 import random
+import glob
 
 # IMPORTANT: Set CUDA_VISIBLE_DEVICES BEFORE importing torch
 # Parse --gpu argument early to set CUDA_VISIBLE_DEVICES before torch import
@@ -79,20 +84,20 @@ def parse_args():
         type=int,
         nargs="+",
         default=[1, 2, 3, 5, 7, 10, 15, 20, 25, 30],
-        help="List of k_features values to experiment with (default: 1 2 3 5 7 10 15 20 25 30)"
+        help="List of k_features values to experiment with. Use 0 with --supplement-with-random for purely random features (default: 1 2 3 5 7 10 15 20 25 30)"
     )
     
     parser.add_argument(
         "--n-samples-extraction",
         type=int,
-        default=None,
+        default=10,
         help="Fixed number of samples for feature extraction (default: use all available data)"
     )
     
     parser.add_argument(
         "--n-samples-unlearning",
         type=int,
-        default=None,
+        default=2500,
         help="Fixed number of samples for unlearning (default: use all available data)"
     )
     
@@ -297,12 +302,11 @@ class FeatureSupplementedCRISP(CRISP):
     def get_salient_features(self, layer_idx, k_features, topk_filter: bool = True):
         """
         Override to optionally supplement with random features.
+        Handles the special case where k_features=0 and only random features are used.
         """
-        # Get salient features using parent method
-        salient_features = super().get_salient_features(layer_idx, k_features, topk_filter)
-        
-        # If supplementation is not enabled, return as-is
+        # If supplementation is not enabled, use parent method as-is
         if self.supplement_total is None or self.supplement_total <= k_features:
+            salient_features = super().get_salient_features(layer_idx, k_features, topk_filter)
             self.n_random_features_per_layer[layer_idx] = 0
             return salient_features
         
@@ -318,6 +322,27 @@ class FeatureSupplementedCRISP(CRISP):
         else:
             # Fallback: try to infer from encoder weight shape
             max_features = sae.encoder.weight.shape[0] if hasattr(sae, 'encoder') else 32768
+        
+        # Handle k=0 case: only random features
+        if k_features == 0:
+            #print(f"  Layer {layer_idx}: Using {self.supplement_total} random features (k=0)")
+            # Create empty tensor for salient features with correct device
+            device = next(self.model.parameters()).device
+            salient_features = torch.tensor([], dtype=torch.long, device=device)
+            
+            # Generate purely random features
+            combined_features, n_random = supplement_features_with_random(
+                salient_features=salient_features,
+                total_features=self.supplement_total,
+                max_features_available=max_features,
+                layer_idx=layer_idx
+            )
+            
+            self.n_random_features_per_layer[layer_idx] = n_random
+            return combined_features
+        
+        # Get salient features using parent method
+        salient_features = super().get_salient_features(layer_idx, k_features, topk_filter)
         
         # Supplement with random features
         combined_features, n_random = supplement_features_with_random(
@@ -343,6 +368,7 @@ def run_single_experiment(
     model_config: Dict[str, Any],
     output_dir: str,
     metrics_before: Dict[str, float],
+    timestamp: str,
 ) -> Dict[str, Any]:
     """Run a single unlearning experiment for a given k_features value.
     
@@ -357,11 +383,14 @@ def run_single_experiment(
         model_config: Model configuration dict
         output_dir: Output directory for results
         metrics_before: Metrics from original model evaluation
+        timestamp: Timestamp string for file naming
     """
     
     print("\n" + "="*80)
     print(f"Running experiment with k_features={k_features}")
-    if supplement_with_random:
+    if k_features == 0 and supplement_with_random:
+        print(f"  Using ONLY {supplement_with_random} random features (k=0, no salient features)")
+    elif supplement_with_random:
         print(f"  Supplementing to {supplement_with_random} total features with random features")
     if n_samples_extraction:
         print(f"  Using {n_samples_extraction} samples for feature extraction")
@@ -461,7 +490,7 @@ def run_single_experiment(
         "retain": retain,
         "model": model_config['model_card'],
         "max_length": max_length,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": timestamp,
         "metrics_before": metrics_before,
         "metrics_after": metrics_after,
         "unlearn_config": unlearn_config.to_dict(),
@@ -498,7 +527,8 @@ def run_single_experiment(
         suffix_parts.append(f"unl{n_samples_unlearning}")
     suffix = "_" + "_".join(suffix_parts) if suffix_parts else ""
     
-    exp_filename = f"experiment_k{k_features}_{target}_{retain}_{model_config['model_name_short']}{suffix}.json"
+    # Add timestamp to filename
+    exp_filename = f"experiment_k{k_features}_{target}_{retain}_{model_config['model_name_short']}{suffix}_{timestamp.replace(' ', '_').replace(':', '-')}.json"
     exp_path = os.path.join(output_dir, exp_filename)
     with open(exp_path, 'w') as f:
         json.dump(results, f, indent=2)
@@ -613,9 +643,18 @@ def main():
             print(f"Warning: --supplement-with-random ({args.supplement_with_random}) is less than max k_features ({max_k})")
             print("Random supplementation will only apply when k_features < supplement_with_random")
     
+    # Check if k=0 is used and ensure supplement_with_random is specified
+    if 0 in args.feature_counts:
+        if args.supplement_with_random is None or args.supplement_with_random <= 0:
+            print("ERROR: When k_features=0, --supplement-with-random must be specified with a positive value.")
+            print("Example: --feature-counts 0 --supplement-with-random 10")
+            sys.exit(1)
+        print(f"\nNote: k_features=0 detected. Will use {args.supplement_with_random} purely random features.")
+    
     print("\n" + "="*80)
     print("FEATURE VARIATION EXPERIMENT CONFIGURATION")
     print("="*80)
+    print(f"Seed: {SEED}")
     print(f"Model: {args.model}")
     print(f"Target: {args.target}")
     print(f"Retain: {args.retain}")
@@ -647,6 +686,9 @@ def main():
     # Run experiments for each k_features value
     all_results = []
     
+    # Generate a shared timestamp for this run of experiments
+    run_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     for k_features in args.feature_counts:
         # Check if results already exist
         suffix_parts = []
@@ -658,13 +700,16 @@ def main():
             suffix_parts.append(f"unl{args.n_samples_unlearning}")
         suffix = "_" + "_".join(suffix_parts) if suffix_parts else ""
         
-        exp_filename = f"experiment_k{k_features}_{args.target}_{args.retain}_{model_config['model_name_short']}{suffix}.json"
-        exp_path = os.path.join(args.output_dir, exp_filename)
+        # Pattern to match experiment files with any timestamp
+        exp_pattern = f"experiment_k{k_features}_{args.target}_{args.retain}_{model_config['model_name_short']}{suffix}_*.json"
+        exp_matches = glob.glob(os.path.join(args.output_dir, exp_pattern))
         
-        if args.skip_existing and os.path.exists(exp_path):
+        if args.skip_existing and exp_matches:
             print(f"\n{'='*80}")
             print(f"Skipping k_features={k_features} (results already exist)")
             print(f"{'='*80}")
+            # Load the most recent matching file
+            exp_path = max(exp_matches, key=os.path.getmtime)
             with open(exp_path, 'r') as f:
                 results = json.load(f)
             all_results.append(results)
@@ -682,6 +727,7 @@ def main():
                 model_config=model_config,
                 output_dir=args.output_dir,
                 metrics_before=metrics_before,
+                timestamp=run_timestamp,
             )
             all_results.append(results)
             
