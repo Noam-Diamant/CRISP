@@ -235,7 +235,7 @@ def create_tradeoff_plot(results: List[Dict[str, Any]], target: str, model: str,
 
 
 def get_filename_suffix(experiment_info: Dict[str, Any]) -> str:
-    """Generate filename suffix based on experiment configuration."""
+    """Generate filename suffix based on experiment configuration, including timestamp."""
     suffix_parts = []
     
     if experiment_info.get('supplement_with_random'):
@@ -244,6 +244,12 @@ def get_filename_suffix(experiment_info: Dict[str, Any]) -> str:
         suffix_parts.append(f"ext{experiment_info['n_samples_extraction']}")
     if experiment_info.get('n_samples_unlearning'):
         suffix_parts.append(f"unl{experiment_info['n_samples_unlearning']}")
+    
+    # Add timestamp if available (from experiment_info)
+    if experiment_info.get('timestamp'):
+        # Format timestamp for filename (replace spaces and colons)
+        timestamp_str = experiment_info['timestamp'].replace(' ', '_').replace(':', '-')
+        suffix_parts.append(timestamp_str)
     
     return "_" + "_".join(suffix_parts) if suffix_parts else ""
 
