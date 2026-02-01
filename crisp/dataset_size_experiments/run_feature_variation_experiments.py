@@ -283,7 +283,8 @@ def supplement_features_with_random(
         n_random_needed = len(available)
     
     random_indices = random.sample(available, n_random_needed)
-    random_features = torch.tensor(random_indices, dtype=salient_features.dtype, device=salient_features.device)
+    # Always use dtype=torch.long for indices
+    random_features = torch.tensor(random_indices, dtype=torch.long, device=salient_features.device)
     
     combined = torch.cat([salient_features, random_features])
     return combined, n_random_needed
@@ -473,9 +474,9 @@ def run_single_experiment(
     n_random_features = 0
     total_features_actual = k_features
     if supplement_with_random and isinstance(crisp, FeatureSupplementedCRISP):
-        # Average across layers
+        # Average across layers and round to avoid fractional display
         if crisp.n_random_features_per_layer:
-            n_random_features = sum(crisp.n_random_features_per_layer.values()) / len(crisp.n_random_features_per_layer)
+            n_random_features = round(sum(crisp.n_random_features_per_layer.values()) / len(crisp.n_random_features_per_layer))
             total_features_actual = k_features + n_random_features
     
     # Compile results
@@ -605,7 +606,8 @@ def save_summary_results(all_results: List[Dict[str, Any]], output_dir: str, arg
         retain_after = result['metrics_after'][retain_key]
         retain_drop = result['retain_accuracy_drop_percent']
         
-        print(f"{k_features:<12} {total_features:<12.1f} {n_random:<12.1f} {target_before:<15.4f} {target_after:<15.4f} {target_drop:<10.2f} "
+        # Display as integers for cleaner output
+        print(f"{k_features:<12} {int(total_features):<12} {int(n_random):<12} {target_before:<15.4f} {target_after:<15.4f} {target_drop:<10.2f} "
               f"{retain_before:<15.4f} {retain_after:<15.4f} {retain_drop:<10.2f}")
     
     print("="*80)

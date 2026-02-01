@@ -444,7 +444,8 @@ class CRISP:
             top_features = [f.index for f in layer_features.topk_filtered(k_features, self.config.model_name)]
         else:
             top_features = [f.index for f in layer_features.topk(k_features)]
-        features_indices = torch.tensor(top_features[:k_features])
+        # Always use dtype=torch.long for indices, even when list is empty
+        features_indices = torch.tensor(top_features[:k_features], dtype=torch.long)
         return features_indices
 
     def ablation_hook(self, module, input, output, layer_idx: int, k_features_ablate: int, layers: List[int], alpha: float, error: bool = False, topk_filter: bool = True):
@@ -478,7 +479,8 @@ class CRISP:
         features_to_ablate = self.get_salient_features(
             layer_idx, k_features=k_features_ablate, topk_filter=topk_filter).to(encoded_ablated.device)
 
-        features_to_ablate = torch.tensor(features_to_ablate).to(encoded_ablated.device)
+        # Ensure indices are long dtype (defensive check)
+        features_to_ablate = features_to_ablate.long()
 
         encoded_ablated = self.ablate_features(encoded_ablated, features_to_ablate, alpha, mean)
 
