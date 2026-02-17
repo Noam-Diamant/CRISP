@@ -82,7 +82,7 @@ def get_params(model: AutoModelForCausalLM, layer_ids, params_name=None):
     return params
 
 
-def get_features_acts(model: CRISP, outputs, k, mode: str, alpha: float, topk_filter: bool = True, original_outputs=None) -> dict:
+def get_features_acts(model: CRISP, outputs, k, mode: str, alpha: float, topk_filter: bool = True, original_outputs=None) -> tuple[dict, list]:
     """
     Extracts and processes feature activations from a given model's layers based on the specified mode.
 
@@ -97,16 +97,23 @@ def get_features_acts(model: CRISP, outputs, k, mode: str, alpha: float, topk_fi
         original_outputs: outputs from the original (non-LoRA) model.
 
     Returns:
-        dict: A dictionary where keys are layer indices and values are the processed activations for the salient features.
+        tuple: (features_acts dict, list of active layer indices)
+            - features_acts: Dictionary where keys are layer indices and values are the processed activations for the salient features.
+            - active_layers: List of layer indices that have salient features.
     """
 
     features_acts = {}
+    active_layers = []
 
     for i, layer_idx in enumerate(model.layers):
         salient_features = model.get_salient_features(layer_idx, k, topk_filter)
         replacement_features = None
         if salient_features.numel() == 0:
             continue
+        
+        # Track this layer as active
+        active_layers.append(layer_idx)
+        
         # Get the specific device for this layer's SAE
         layer_name = f"layers.{layer_idx}"
         layer_device = model.model_saes.get_layer_device(layer_name)
@@ -145,10 +152,10 @@ def get_features_acts(model: CRISP, outputs, k, mode: str, alpha: float, topk_fi
         if salient_features.numel() > 0:
             features_acts[layer_idx] = encoded[:, :, salient_features]
 
-    return features_acts
+    return features_acts, active_layers
 
 
-def loss_features_acts(crisp: CRISP, outputs, config: UnlearnConfig, original_outputs=None) -> Tensor:
+def loss_features_acts(crisp: CRISP, outputs, config: UnlearnConfig, original_outputs=None) -> tuple[Tensor, list]:
     """
         Calculate the loss based on the activations of features in the model's layers.
 
@@ -162,7 +169,9 @@ def loss_features_acts(crisp: CRISP, outputs, config: UnlearnConfig, original_ou
             config (UnlearnConfig): Configuration object containing parameters for feature extraction.
 
         Returns:
-            float: The mean activation loss across all layers.
+            tuple: (loss tensor, list of active layer indices)
+                - loss: The mean activation loss across all layers with salient features.
+                - active_layers: List of layer indices that have salient features.
     """
     # Get a device from the first layer to use for the initial loss tensor
     first_layer = crisp.layers[0] if crisp.layers else 0
@@ -170,7 +179,7 @@ def loss_features_acts(crisp: CRISP, outputs, config: UnlearnConfig, original_ou
     initial_device = crisp.model_saes.get_layer_device(layer_name)
 
     loss = torch.tensor(0.0, device=initial_device)
-    features_acts = get_features_acts(crisp, outputs, k=config.k_features, mode="acts_alpha", alpha=config.alpha, topk_filter=True, original_outputs=original_outputs)
+    features_acts, active_layers = get_features_acts(crisp, outputs, k=config.k_features, mode="acts_alpha", alpha=config.alpha, topk_filter=True, original_outputs=original_outputs)
     attention_mask = outputs.attention_mask  # shape [b, seq_len]
 
     for layer, acts in features_acts.items():
@@ -189,15 +198,23 @@ def loss_features_acts(crisp: CRISP, outputs, config: UnlearnConfig, original_ou
 
     # Mean the loss by the number of layers
     if len(features_acts) > 0:
-        return loss / len(features_acts)
-    return loss
+        return loss / len(features_acts), active_layers
+    return loss, active_layers
 
 
-def loss_acts_diff(crisp: CRISP, edited_outputs, target_outputs, config: UnlearnConfig, layers: str = "sae"):
+def loss_acts_diff(crisp: CRISP, edited_outputs, target_outputs, config: UnlearnConfig, layers: str = "sae", active_layers: list = None):
     """
     Loss based on the difference between the activations of the original model residual stream x
     and the edited model activation residual stream x_hat.
     Uses tensor stacking for efficient calculation while properly masking BOS and PAD tokens.
+    
+    Args:
+        crisp: CRISP model instance
+        edited_outputs: Outputs from the edited (LoRA-adapted) model
+        target_outputs: Outputs from the target (original) model
+        config: UnlearnConfig instance
+        layers: Which layers to use - "last", "sae", or "all"
+        active_layers: Optional list of specific layer indices to use (only applies when layers="sae")
     """
     # Get attention mask to ignore pad tokens
     attention_mask = edited_outputs.attention_mask  # shape [b, seq_len]
@@ -213,9 +230,16 @@ def loss_acts_diff(crisp: CRISP, edited_outputs, target_outputs, config: Unlearn
         x_target = target_outputs.hidden_states[-1].unsqueeze(0)
         x_edit = edited_outputs.hidden_states[-1].unsqueeze(0)
     elif layers == "sae":
-        # Get layers specified in crisp.layers and stack them
-        x_target = torch.stack([target_outputs.hidden_states[layer] for layer in crisp.layers], dim=0)
-        x_edit = torch.stack([edited_outputs.hidden_states[layer] for layer in crisp.layers], dim=0)
+        # Get layers specified in active_layers (if provided) or crisp.layers
+        layers_to_use = active_layers if active_layers is not None else crisp.layers
+        
+        # If no active layers, return zero loss
+        if not layers_to_use:
+            device = edited_outputs.hidden_states[0].device
+            return torch.tensor(0.0, device=device)
+        
+        x_target = torch.stack([target_outputs.hidden_states[layer] for layer in layers_to_use], dim=0)
+        x_edit = torch.stack([edited_outputs.hidden_states[layer] for layer in layers_to_use], dim=0)
     elif layers == "all":
         # Get all layers (except first two) and stack them
         x_target = torch.stack([h for h in target_outputs.hidden_states[2:]], dim=0)
@@ -325,6 +349,24 @@ def unlearn_lora(crisp: CRISP, text_target, text_benign, config: UnlearnConfig, 
     batch_size = min(config.batch_size, n_samples)
     n_batches = (n_samples + batch_size - 1) // batch_size  # ceiling division
 
+    # Check which layers have salient features before training
+    print("\nChecking which layers have salient features...")
+    layers_with_features = []
+    for layer_idx in crisp.layers:
+        k = config.k_features if isinstance(config.k_features, int) else config.k_features[crisp.layers.index(layer_idx)]
+        salient_features = crisp.get_salient_features(layer_idx, k, topk_filter=True)
+        if salient_features.numel() > 0:
+            layers_with_features.append(layer_idx)
+            print(f"  Layer {layer_idx}: {salient_features.numel()} salient features")
+        else:
+            print(f"  Layer {layer_idx}: NO salient features (will be skipped)")
+    
+    if not layers_with_features:
+        print("\nWARNING: No layers have salient features! Unlearning will be skipped for all batches.")
+    else:
+        print(f"\nTotal layers with salient features: {len(layers_with_features)}/{len(crisp.layers)}")
+        print(f"Active layers for unlearning: {layers_with_features}\n")
+
     for _ in tqdm(range(config.num_epochs), desc="Epochs", total=config.num_epochs):
         # Shuffle data each epoch for better training
         indices = torch.randperm(n_samples).tolist()
@@ -347,15 +389,20 @@ def unlearn_lora(crisp: CRISP, text_target, text_benign, config: UnlearnConfig, 
                 unlearn_original_outputs = crisp(batch_target, requires_grad=False)
             
             loss_func = get_loss_func(unlearn_original_outputs)
-            loss_unlearn = loss_func(crisp, unlearn_edited_outputs, config)
+            loss_unlearn, active_layers = loss_func(crisp, unlearn_edited_outputs, config)
 
-            # Regularization - always use benign text with acts_diff
+            # If no layers have salient features, skip this batch entirely
+            if not active_layers:
+                print(f"Batch {batch_idx+1}/{n_batches}: No layers with salient features, skipping batch")
+                continue
+
+            # Regularization - use ONLY active layers (layers with salient features)
             reg_edited_outputs = crisp(batch_benign, requires_grad=True)
             with crisp.model.disable_adapter():
                 reg_original_outputs = crisp(batch_benign, requires_grad=False)
-            reg_loss = loss_acts_diff(crisp, reg_edited_outputs, reg_original_outputs, config)
+            reg_loss = loss_acts_diff(crisp, reg_edited_outputs, reg_original_outputs, config, active_layers=active_layers)
 
-            # Coherency loss - always enabled
+            # Coherency loss - always enabled, uses last layer only (not affected by active_layers)
             # Select coherency prompts based on target type
             if config.data_type == "cyber":
                 coherency_prompts = wmdp_cyber_coherency_prompts
@@ -396,7 +443,8 @@ def unlearn_lora(crisp: CRISP, text_target, text_benign, config: UnlearnConfig, 
                 str_print_loss = f"Batch {batch_idx+1}/{n_batches}, Loss: {batch_loss.item():.2e} " + \
                       f"(Unlearn: {loss_unlearn.item():.2e}, " + \
                       f"Reg: {reg_loss.item():.2e}, " + \
-                      f"Coherency: {coher_loss.item():.2e})"
+                      f"Coherency: {coher_loss.item():.2e}) " + \
+                      f"Active layers: {active_layers}"
                 print(str_print_loss)
 
             if (batch_idx + 1) % 200 == 0 and config.verbose:
