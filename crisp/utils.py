@@ -75,19 +75,32 @@ class CustomUnpickler(pickle.Unpickler):
             module = 'crisp'  # Use your correct module path
         return super().find_class(module, name)
 
-def load_cached_features(layer: int, data_config, model_name: str):
+def load_cached_features(layer: int, data_config, model_name: str, cache_dir: str = None):
+    """
+    Load cached features from disk.
+    
+    Args:
+        layer: Layer index
+        data_config: Data configuration object
+        model_name: Model name
+        cache_dir: Optional custom cache directory. If None, uses default global cache.
+    
+    Returns:
+        Cached features or None if not found
+    """
     if data_config is None:
         return None
 
     filename = get_cache_filename(layer, data_config)
 
-    # Select cache directory based on model name
-    if LLAMA_3_1_8B == model_name:
-        cache_dir = LLAMA_3_1_CACHE_DIR
-    elif GEMMA_2_2B == model_name:
-        cache_dir = GEMMA_CACHE_DIR
-    else:
-        raise ValueError(f"Unknown model type: {model_name}. Cannot determine cache directory.")
+    # Use custom cache_dir if provided, otherwise select based on model name
+    if cache_dir is None:
+        if LLAMA_3_1_8B == model_name:
+            cache_dir = LLAMA_3_1_CACHE_DIR
+        elif GEMMA_2_2B == model_name:
+            cache_dir = GEMMA_CACHE_DIR
+        else:
+            raise ValueError(f"Unknown model type: {model_name}. Cannot determine cache directory.")
 
     cache_path = f"{cache_dir}/{filename}.pkl"
     config_path = f"{cache_dir}/{filename}_config.json"
@@ -100,17 +113,28 @@ def load_cached_features(layer: int, data_config, model_name: str):
         return features
     return None
 
-def save_cached_features(layer: int, data_config, features, model_name: str):
+def save_cached_features(layer: int, data_config, features, model_name: str, cache_dir: str = None):
+    """
+    Save features to cache on disk.
+    
+    Args:
+        layer: Layer index
+        data_config: Data configuration object
+        features: Features to cache
+        model_name: Model name
+        cache_dir: Optional custom cache directory. If None, uses default global cache.
+    """
     if data_config is None:
         return
 
-    # Select cache directory based on model name
-    if LLAMA_3_1_8B == model_name:
-        cache_dir = LLAMA_3_1_CACHE_DIR
-    elif GEMMA_2_2B == model_name:
-        cache_dir = GEMMA_CACHE_DIR
-    else:
-        raise ValueError(f"Unknown model type: {model_name}. Cannot determine cache directory.")
+    # Use custom cache_dir if provided, otherwise select based on model name
+    if cache_dir is None:
+        if LLAMA_3_1_8B == model_name:
+            cache_dir = LLAMA_3_1_CACHE_DIR
+        elif GEMMA_2_2B == model_name:
+            cache_dir = GEMMA_CACHE_DIR
+        else:
+            raise ValueError(f"Unknown model type: {model_name}. Cannot determine cache directory.")
 
     os.makedirs(cache_dir, exist_ok=True)
     filename = get_cache_filename(layer, data_config)

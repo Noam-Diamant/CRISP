@@ -219,7 +219,18 @@ class CRISP:
         with torch.no_grad():
             return torch.softmax(self.get_logits(hidden_state), dim=-1)
 
-    def process_multi_texts_batch(self, text_target, text_benign, data_config=None, batch_size=16):
+    def process_multi_texts_batch(self, text_target, text_benign, data_config=None, batch_size=16, cache_dir=None):
+        """
+        Process multiple texts in batches and extract features.
+        
+        Args:
+            text_target: Target texts to process
+            text_benign: Benign texts to process
+            data_config: Data configuration for caching
+            batch_size: Batch size for processing
+            cache_dir: Optional custom cache directory. If None, uses default global cache.
+                      Useful for forcing fresh extraction from unlearned models.
+        """
         # Clear previous features if any
         if self.features_dict:
             print("Clearing previous features.")
@@ -234,7 +245,8 @@ class CRISP:
             cached_features = load_cached_features(
                 layer, 
                 data_config, 
-                model_name=self.config.model_name
+                model_name=self.config.model_name,
+                cache_dir=cache_dir
             )
             if cached_features:
                 cached_layer_features[layer] = cached_features
@@ -355,7 +367,8 @@ class CRISP:
                         layer, 
                         data_config, 
                         features, 
-                        model_name=self.config.model_name
+                        model_name=self.config.model_name,
+                        cache_dir=cache_dir
                     )
 
             layer_features = LayerFeatures(features)

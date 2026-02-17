@@ -170,7 +170,7 @@ def loss_features_acts(crisp: CRISP, outputs, config: UnlearnConfig, original_ou
     initial_device = crisp.model_saes.get_layer_device(layer_name)
 
     loss = torch.tensor(0.0, device=initial_device)
-    features_acts = get_features_acts(crisp, outputs, k=config.k_features, mode="alpha_abs", alpha=config.alpha, topk_filter=True, original_outputs=original_outputs)
+    features_acts = get_features_acts(crisp, outputs, k=config.k_features, mode="acts_alpha", alpha=config.alpha, topk_filter=True, original_outputs=original_outputs)
     attention_mask = outputs.attention_mask  # shape [b, seq_len]
 
     for layer, acts in features_acts.items():
