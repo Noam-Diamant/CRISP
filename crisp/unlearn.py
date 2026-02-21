@@ -468,6 +468,10 @@ def unlearn_lora(crisp: CRISP, text_target, text_benign, config: UnlearnConfig, 
                 "unlearn_config": config.to_dict(),
                 "data_config": data_config.to_dict() if data_config else None
             }
-            model_name = "llama_3_1" if "llama" in crisp.config.model_name else "gemma"
-            path = f"{PROJECT_PATH}/CRISP/saved_models/crisp/{model_name}/{config.data_type}"
+            # Use the save_path from config if provided, otherwise use default
+            if config.save_path:
+                path = config.save_path
+            else:
+                model_name = "llama_3_1" if "llama" in crisp.config.model_name else "gemma"
+                path = f"{PROJECT_PATH}/CRISP/saved_models/crisp/{model_name}/{config.data_type}"
             save_model(crisp.model, configs=configs, path=path, tokenizer=crisp.tokenizer)

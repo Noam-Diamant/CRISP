@@ -116,6 +116,12 @@ Answer:
         data_path = "data/mmlu/mmlu.json"
     elif type == "mmlu_10":  # 10 examples per subject
         data_path = "data/mmlu/mmlu_10.json"
+    elif type == "bio_safe":
+        data_path = "data/wmdp/bio/bio_safe_mcq.json"
+    elif type == "bio_safe_shadow":
+        data_path = "data/wmdp/bio/bio_safe_shadow_technical_mcq.json"
+    elif type == "cyber_safe_shadow":
+        data_path = "data/wmdp/cyber/cyber_safe_shadow_technical_mcq.json"
     else:
         raise ValueError("Invalid type specified")
 
