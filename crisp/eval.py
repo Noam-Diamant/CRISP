@@ -122,6 +122,10 @@ Answer:
         data_path = "data/wmdp/bio/bio_safe_shadow_technical_mcq.json"
     elif type == "cyber_safe_shadow":
         data_path = "data/wmdp/cyber/cyber_safe_shadow_technical_mcq.json"
+    elif type == "bio_retain":
+        data_path = "data/wmdp/bio/bio_retain_mcq.json"
+    elif type == "cyber_retain":
+        data_path = "data/wmdp/cyber/cyber_retain_mcq.json"
     else:
         raise ValueError("Invalid type specified")
 
